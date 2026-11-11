@@ -23,7 +23,6 @@ BOT_TOKEN = "9033220269:AAEL5MCxUjxJOIcMUNxjW0kK-kev6hgXeeQ"
 ADMIN_ID  = "6109042131"
 WEB_PORT  = int(os.getenv("PORT", "5000"))
 
-# Партнерская ссылка для Aviator с меткой sub1
 PARTNER_URL = "https://r1wagwk.com/v3/aviator-fire?p=a0d1&sub1={uid}"
 
 # ============================================================
@@ -233,12 +232,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     t = LANG[r_u['lang']]['ref_success'] if r_u['ref_count'] >= 3 else LANG[r_u['lang']]['ref_notify'].format(count=r_u['ref_count'])
                     try: urllib.request.urlopen(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage?chat_id={r_u['user_id']}&text={urllib.parse.quote(t)}&parse_mode=HTML", timeout=5)
                     except: pass
-            self.send_response(200); self.end_headers(); self.wfile.write(b"sub1=" + s1.encode() + b"; subid=" + s2.encode() + b"; OK"); return
+            self.send_response(200); self.end_headers(); self.wfile.write(f"sub1={s1}; subid={s2}; OK".encode('utf-8')); return
         self.send_response(404); self.end_headers()
+
+# ============================================================
+# ИСПРАВЛЕННЫЙ ЗАПУСК (ВСЁ В ОДНОМ EVENT LOOP)
+# ============================================================
+async def main():
+    await bot.set_chat_menu_button(menu_button=MenuButtonCommands(text="Start"))
+    log.info("Bot starting polling...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     init_db()
     threading.Thread(target=lambda: http.server.HTTPServer(('0.0.0.0', WEB_PORT), Handler).serve_forever(), daemon=True).start()
-    log.info("Bot starting...")
-    asyncio.run(bot.set_chat_menu_button(menu_button=MenuButtonCommands(text="Start")))
-    asyncio.run(dp.start_polling(bot))
+    log.info("Web server started on port %s", WEB_PORT)
+    asyncio.run(main())
