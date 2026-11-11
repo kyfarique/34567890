@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 import datetime
 import asyncio
+import json
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandObject
@@ -32,7 +33,7 @@ DB_PATH  = os.path.join(BASE_DIR, "DataBase.db")
 LANG = {
     'ru': {
         'welcome': "✈️ <b>ДОСТУП К СЕКРЕТНОМУ АЛГОРИТМУ ПОЛУЧЕН</b> ✈️\n\nПриветствуем в <b>AVIATOR AI PREDICTOR</b>!\n\n😤 Устал смотреть, как самолет улетает на x1.01? Пора забирать свое.\n\n🧠 Наша нейросеть сканирует игру <b>Aviator</b> и вычисляет точный коэффициент для кэшаута с точностью <b>до 90%</b>.",
-        'btn_reg': "💳 Регистрация", 'btn_instr': "📖 Инструкция", 'btn_sign': "🔮 Выдать сигнал", 'btn_lang': "🌐 Язык", 'btn_ref': "👥 Конкурс и Рефералы", 'btn_support': "🆘 Поддержка",
+        'btn_reg': "💳 Регистрация", 'btn_instr': "📖 Инструкция", 'btn_sign': "✈️ Выдать сигнал", 'btn_lang': "🌐 Язык", 'btn_ref': "👥 Конкурс и Рефералы", 'btn_support': "🆘 Поддержка",
         'choose_lang': "🌐 Выберите язык / Choose language:",
         'lang_set': "Язык изменен на Русский 🇷🇺",
         'need_reg': "⚠️ <b>ДОСТУП ЗАБЛОКИРОВАН!</b>\n\nАлгоритм ИИ требует привязки аккаунта 1win.\n\n👇 Зарегистрируйся в 1 клик:",
@@ -41,11 +42,12 @@ LANG = {
         'btn_risk_1': "🟢 Низкий (до x1.5)", 'btn_risk_2': "🟡 Средний (до x2.5)", 'btn_risk_3': "🔴 Высокий (x3.0+)",
         'btn_main': "⬅️ Главное меню",
         'signal_title': "✈️ <b>Анализ завершен!</b>\nУровень риска: <b>{risk_name}</b>\n\n",
-        'signal_hint': "\n🎯 <b>Целевой коэффициент для кэшаута:</b> <code>x{target}</code>\n\n{left}🔥 <i>Удачи! Не жадничай.</i>",
+        'signal_hint': "\n🎯 <b>Целевой коэффициент:</b> <code>x{target}</code>\n\n{left}🔥 <i>Удачи! Не жадничай.</i>",
         'left_signals': "💡 <i>Осталось сигналов: {left}</i>\n\n",
         'limit_msg': "⚠️ <b>ЛИМИТ ИСЧЕРПАН!</b>\n\n👇 Пригласите друга по кнопке «👥 Конкурс и Рефералы»!",
         'instr_text': "📖 <b>КАК ИГРАТЬ:</b>\n\n1️⃣ <b>Регистрация:</b> <a href='{url}'>КЛИКНИ СЮДА</a>\n2️⃣ <b>Депозит.</b>\n3️⃣ <b>Игра:</b> Раздел <b>Aviator</b>.\n4️⃣ <b>Настройка:</b> Авто-кэшаут по сигналу.",
-        'admin_panel': "⚙️ Админ панель. /top", 'not_admin': "❌ Вы не админ.",
+        'admin_panel': "⚙️ <b>АДМИН ПАНЕЛЬ</b>\n\n👑 Статус: <b>GOD MODE (Безлимит)</b>\n📊 Управление: /top - таблица лидеров",
+        'not_admin': "❌ Вы не админ.",
         'support_text': "🆘 <b>Поддержка</b>\n\n👉 <a href='tg://user?id={admin_id}'>Написать админу</a>",
         'ref_title': "🏆 <b>КОНКУРС</b> 🏆\n\n1 друг = 1 билет.\n🥇 $100\n🥈 $50\n🥉 $20\n\n📊 Твои билеты: <b>{count}</b>\n\n🔗 Ссылка:\n<code>{link}</code>",
         'ref_notify': "🎉 Друг зарегистрировался! +1 билет. Всего: <b>{count}</b>.",
@@ -53,7 +55,7 @@ LANG = {
     },
     'en': {
         'welcome': "✈️ <b>SECRET ALGORITHM ACCESS GRANTED</b> ✈️\n\nWelcome to <b>AVIATOR AI PREDICTOR</b>!\n\n🧠 Our neural network calculates the exact cashout multiplier with <b>up to 90% accuracy</b>.",
-        'btn_reg': "💳 Register", 'btn_instr': "📖 Instruction", 'btn_sign': "🔮 Get Signal", 'btn_lang': "🌐 Language", 'btn_ref': "👥 Contest & Refs", 'btn_support': "🆘 Support",
+        'btn_reg': "💳 Register", 'btn_instr': "📖 Instruction", 'btn_sign': "✈️ Get Signal", 'btn_lang': "🌐 Language", 'btn_ref': "👥 Contest & Refs", 'btn_support': "🆘 Support",
         'choose_lang': "🌐 Выберите язык / Choose language:",
         'lang_set': "Language changed to English 🇬🇧",
         'need_reg': "⚠️ <b>ACCESS BLOCKED!</b>\n\nRegister below to unlock:",
@@ -64,11 +66,12 @@ LANG = {
         'signal_title': "✈️ <b>Analysis Complete!</b>\nRisk level: <b>{risk_name}</b>\n\n",
         'signal_hint': "\n🎯 <b>Target multiplier:</b> <code>x{target}</code>\n\n{left}🔥 <i>Good luck!</i>",
         'left_signals': "💡 <i>Signals left: {left}</i>\n\n",
-        'limit_msg': "⚠️ <b>LIMIT REACHED!</b>\n\nInvite a friend!",
+        'limit_msg': "⚠️ <b>LIMIT REACHED!</b>\n\nInvite a friend via '👥 Contest & Refs'!",
         'instr_text': "📖 <b>HOW TO START:</b>\n\n1️⃣ <b>Register:</b> <a href='{url}'>CLICK HERE</a>\n2️⃣ <b>Deposit.</b>\n3️⃣ <b>Game:</b> <b>Aviator</b>.",
-        'admin_panel': "⚙️ Admin panel.", 'not_admin': "❌ No rights.",
+        'admin_panel': "⚙️ <b>ADMIN PANEL</b>\n\n👑 Status: <b>GOD MODE (Unlimited)</b>\n📊 Commands: /top",
+        'not_admin': "❌ No rights.",
         'support_text': "🆘 <b>Support</b>\n\n👉 <a href='tg://user?id={admin_id}'>Message Admin</a>",
-        'ref_title': "🏆 <b>PRIZE POOL CONTEST</b> 🏆\n\n1 friend = 1 ticket.\n🥇 $100\n🥈 $50\n🥉 $20\n\n📊 Tickets: <b>{count}</b>\n\n🔗 Link:\n<code>{link}</code>",
+        'ref_title': "🏆 <b>CONTEST</b> 🏆\n\n1 friend = 1 ticket.\n🥇 $100\n🥈 $50\n🥉 $20\n\n📊 Tickets: <b>{count}</b>\n\n🔗 Link:\n<code>{link}</code>",
         'ref_notify': "🎉 Friend registered! +1 ticket. Total: <b>{count}</b>.",
         'ref_success': "🔥 <b>3 friends invited!</b> Access open forever!"
     }
@@ -124,14 +127,21 @@ def risk_menu(lang):
 def sign_kb(lang):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=LANG[lang]['btn_sign'], callback_data="sign")], [InlineKeyboardButton(text=LANG[lang]['btn_main'], callback_data="main_menu")]])
 
-def generate_signal(lang, risk_level, left=0):
+def generate_aviator_signal(lang, risk_level, signals_left_str):
     if risk_level == "low": target, r_name, g = round(random.uniform(1.2, 1.6), 2), "Low", "📈  🛫\n     🛫"
     elif risk_level == "high": target, r_name, g = round(random.uniform(2.8, 7.5), 2), "High", "📈  🛫\n          🛫\n               🛫"
     else: target, r_name, g = round(random.uniform(1.8, 2.5), 2), "Medium", "📈  🛫\n     🛫\n          🛫"
     title = LANG[lang]['signal_title'].format(risk_name=r_name)
-    left_t = LANG[lang]['left_signals'].format(left=left) if left > 0 else ""
-    hint = LANG[lang]['signal_hint'].format(target=target, left=left_t)
+    hint = LANG[lang]['signal_hint'].format(target=target, left=signals_left_str)
     return f"{title}<code>{g}</code>\n{hint}"
+
+def get_fake_win(lang='ru'):
+    names = ["Alex", "Max", "Ivan", "Denis", "Artem", "Vlad", "Favour", "Joyce Appiah"]
+    name = random.choice(names)
+    win = random.randint(500, 65000)
+    mult = round(random.uniform(1.2, 9.5), 2)
+    if lang == 'ru': return f"🔥 <i>{name} только что забрал {win:,} ₽ в Aviator (x{mult})!</i>"
+    else: return f"🔥 <i>{name} just cashed out ${win:,} in Aviator (x{mult})!</i>"
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, command: CommandObject):
@@ -152,12 +162,14 @@ async def cb_set_lang(call: types.CallbackQuery):
     lang = call.data.split("_")[-1]
     with sqlite3.connect(DB_PATH) as conn: conn.execute("UPDATE user SET language = ? WHERE user_id = ?", (lang, call.from_user.id)); conn.commit()
     await call.answer(LANG[lang]['lang_set'])
-    await call.message.edit_text(LANG[lang]['welcome'], reply_markup=main_menu(lang))
+    welcome_text = f"{LANG[lang]['welcome']}\n\n{get_fake_win(lang)}"
+    await call.message.edit_text(welcome_text, reply_markup=main_menu(lang))
 
 @dp.callback_query(F.data == "main_menu")
 async def cb_main(call: types.CallbackQuery):
     u = get_user(call.from_user.id); lang = u['lang'] if u else 'ru'
-    await call.message.edit_text(LANG[lang]['welcome'], reply_markup=main_menu(lang)); await call.answer()
+    welcome_text = f"{LANG[lang]['welcome']}\n\n{get_fake_win(lang)}"
+    await call.message.edit_text(welcome_text, reply_markup=main_menu(lang)); await call.answer()
 
 @dp.callback_query(F.data == "support")
 async def cb_sup(call: types.CallbackQuery):
@@ -192,18 +204,34 @@ async def cb_sign(call: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("gen_risk_"))
 async def cb_gen(call: types.CallbackQuery):
-    u = get_user(call.from_user.id); lang = u['lang'] if u else 'ru'
+    uid = call.from_user.id
+    u = get_user(uid); lang = u['lang'] if u else 'ru'
+    is_admin = (str(uid) == str(ADMIN_ID))
+    
     today = datetime.date.today().isoformat()
     daily = 0 if u['last_signal_date'] != today else u['daily_signals']
-    if daily >= 5:
-        await call.answer("⚠️ Лимит исчерпан!", show_alert=True); await call.message.answer(LANG[lang]['limit_msg']); return
-    daily += 1
-    with sqlite3.connect(DB_PATH) as conn: conn.execute("UPDATE user SET daily_signals = ?, last_signal_date = ? WHERE user_id = ?", (daily, today, call.from_user.id)); conn.commit()
-    await call.message.edit_text(generate_signal(lang, call.data.split("_")[-1], 5 - daily), reply_markup=sign_kb(lang)); await call.answer()
+    
+    if not is_admin:
+        if daily >= 5:
+            await call.answer("⚠️ Лимит исчерпан!", show_alert=True)
+            await call.message.answer(LANG[lang]['limit_msg']); return
+        daily += 1
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("UPDATE user SET daily_signals = ?, last_signal_date = ? WHERE user_id = ?", (daily, today, uid)); conn.commit()
+        signals_left_str = LANG[lang]['left_signals'].format(left=5 - daily)
+    else:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("UPDATE user SET last_signal_date = ? WHERE user_id = ?", (today, uid)); conn.commit()
+        signals_left_str = "💡 <i>Осталось сигналов: ∞ (God Mode)</i>\n\n"
+    
+    signal_text = generate_aviator_signal(lang, call.data.split("_")[-1], signals_left_str)
+    await call.message.edit_text(text=signal_text, reply_markup=sign_kb(lang)); await call.answer()
 
 @dp.message(Command("admin"))
 async def cmd_adm(msg: types.Message):
-    if str(msg.from_user.id) == ADMIN_ID: await msg.answer("⚙️ Админ панель. /top")
+    u = get_user(msg.from_user.id); lang = u['lang'] if u else 'ru'
+    if str(msg.from_user.id) == str(ADMIN_ID): await msg.answer(LANG[lang]['admin_panel'])
+    else: await msg.answer(LANG[lang]['not_admin'])
 
 @dp.message(Command("top"))
 async def cmd_top(msg: types.Message):
@@ -217,6 +245,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         p = urllib.parse.urlparse(self.path)
         if p.path == '/health': self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok": true}'); return
+        
+        if p.path == '/api/stats':
+            with sqlite3.connect(DB_PATH) as conn:
+                total = conn.execute("SELECT COUNT(*) FROM user").fetchone()[0]
+                regs = conn.execute("SELECT COUNT(*) FROM user WHERE postback_id IS NOT NULL").fetchone()[0]
+                recent = conn.execute("SELECT user_id, postback_id FROM user WHERE postback_id IS NOT NULL ORDER BY rowid DESC LIMIT 10").fetchall()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"total": total, "regs": regs, "recent": recent}).encode())
+            return
+
         if p.path == '/postback':
             q = urllib.parse.parse_qs(p.query); s1, s2 = q.get('sub1',[''])[0], q.get('subid',[''])[0]
             if not s1 or not s2: self.send_response(400); self.end_headers(); return
@@ -235,9 +276,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(200); self.end_headers(); self.wfile.write(f"sub1={s1}; subid={s2}; OK".encode('utf-8')); return
         self.send_response(404); self.end_headers()
 
-# ============================================================
-# ИСПРАВЛЕННЫЙ ЗАПУСК (ВСЁ В ОДНОМ EVENT LOOP)
-# ============================================================
 async def main():
     await bot.set_chat_menu_button(menu_button=MenuButtonCommands(text="Start"))
     log.info("Bot starting polling...")
