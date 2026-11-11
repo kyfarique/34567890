@@ -13,6 +13,7 @@ import requests
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonCommands
+from aiogram.client.default import DefaultBotProperties  # <-- ДОБАВЛЕН ИМПОРТ
 
 # ============================================================
 #  НАСТРОЙКИ
@@ -211,7 +212,11 @@ def get_user(uid: int):
     return None
 
 # ---------- Bot ----------
-bot = Bot(token=BOT_TOKEN, disable_web_page_preview=True, parse_mode="HTML")
+# ИСПРАВЛЕНА СТРОКА ИНИЦИАЛИЗАЦИИ БОТА
+bot = Bot(
+    token=BOT_TOKEN, 
+    default=DefaultBotProperties(parse_mode="HTML", link_preview_is_disabled=True)
+)
 dp = Dispatcher()
 
 def get_lang_kb():
@@ -545,10 +550,7 @@ def run_web():
 
 # ---------- Entry ----------
 async def main():
-    # Устанавливаем кнопку меню (Start)
     await bot.set_chat_menu_button(menu_button=MenuButtonCommands(text="Start"))
-    
-    # Запуск бота (aiogram 3.x)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
