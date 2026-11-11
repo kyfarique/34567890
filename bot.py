@@ -7,10 +7,11 @@ import threading
 import http.server
 import urllib.parse
 import datetime
+import asyncio
 
 import requests
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command, CommandObject
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonCommands
 
 # ============================================================
@@ -19,7 +20,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MenuButton
 BOT_TOKEN = "9033220269:AAEL5MCxUjxJOIcMUNxjW0kK-kev6hgXeeQ"
 ADMIN_ID  = "6109042131"
 
-DAILY_LIMIT = 5 # Сколько сигналов в день может запросить 1 человек
+DAILY_LIMIT = 5
 WEB_PORT    = int(os.getenv("PORT", "5000"))
 
 # ВАЖНО: Ссылка на игру Aviator Fire с меткой sub1
@@ -210,69 +211,62 @@ def get_user(uid: int):
     return None
 
 # ---------- Bot ----------
-bot = Bot(token=BOT_TOKEN, disable_web_page_preview=True, parse_mode=types.ParseMode.HTML)
-dp = Dispatcher(bot, storage=MemoryStorage())
+bot = Bot(token=BOT_TOKEN, disable_web_page_preview=True, parse_mode="HTML")
+dp = Dispatcher()
 
 def get_lang_kb():
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("🇷🇺 Русский", callback_data="set_lang_ru"),
-        InlineKeyboardButton("🇬🇧 English", callback_data="set_lang_en"),
-        InlineKeyboardButton("🇪🇸 Español", callback_data="set_lang_es"),
-        InlineKeyboardButton("🇵🇹 Português", callback_data="set_lang_pt"),
-        InlineKeyboardButton("🇮🇳 हिंदी", callback_data="set_lang_hi"),
-        InlineKeyboardButton("🇸🇦 العربية", callback_data="set_lang_ar")
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="set_lang_ru"), InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang_en")],
+        [InlineKeyboardButton(text="🇪🇸 Español", callback_data="set_lang_es"), InlineKeyboardButton(text="🇵🇹 Português", callback_data="set_lang_pt")],
+        [InlineKeyboardButton(text="🇮🇳 हिंदी", callback_data="set_lang_hi"), InlineKeyboardButton(text="🇸🇦 العربية", callback_data="set_lang_ar")]
+    ])
     return kb
 
 def main_menu(lang):
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton(LANG[lang]['btn_reg'], callback_data="reg"),
-        InlineKeyboardButton(LANG[lang]['btn_instr'], callback_data="instr"),
-        InlineKeyboardButton(LANG[lang]['btn_sign'], callback_data="sign"),
-        InlineKeyboardButton(LANG[lang]['btn_ref'], callback_data="ref_menu"),
-        InlineKeyboardButton(LANG[lang]['btn_support'], callback_data="support"),
-        InlineKeyboardButton(LANG[lang]['btn_lang'], callback_data="lang_menu")
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=LANG[lang]['btn_reg'], callback_data="reg")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_instr'], callback_data="instr")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_sign'], callback_data="sign")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_ref'], callback_data="ref_menu")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_support'], callback_data="support")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_lang'], callback_data="lang_menu")]
+    ])
     return kb
 
 def reg_kb(uid, lang):
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton(LANG[lang]['btn_reg'], url=PARTNER_URL.format(uid=uid)))
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=LANG[lang]['btn_reg'], url=PARTNER_URL.format(uid=uid))]
+    ])
     return kb
 
 def risk_menu(lang):
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton(LANG[lang]['btn_risk_1'], callback_data="gen_risk_Low"),
-        InlineKeyboardButton(LANG[lang]['btn_risk_2'], callback_data="gen_risk_Medium"),
-        InlineKeyboardButton(LANG[lang]['btn_risk_3'], callback_data="gen_risk_High"),
-        InlineKeyboardButton(LANG[lang]['btn_main'], callback_data="main_menu")
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=LANG[lang]['btn_risk_1'], callback_data="gen_risk_Low")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_risk_2'], callback_data="gen_risk_Medium")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_risk_3'], callback_data="gen_risk_High")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_main'], callback_data="main_menu")]
+    ])
     return kb
 
 def sign_kb(lang):
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton(LANG[lang]['btn_sign'], callback_data="sign"),
-        InlineKeyboardButton(LANG[lang]['btn_main'], callback_data="main_menu"),
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=LANG[lang]['btn_sign'], callback_data="sign")],
+        [InlineKeyboardButton(text=LANG[lang]['btn_main'], callback_data="main_menu")]
+    ])
     return kb
 
 def generate_aviator_signal(lang, risk_level="Medium", signals_left=0):
-    # Генерация иксы в зависимости от риска
     if risk_level == "Low":
         target = round(random.uniform(1.20, 1.60), 2)
-        risk_name = LANG[lang]['btn_risk_1'].split(' ')[1] # Низкий
+        risk_name = LANG[lang]['btn_risk_1'].split(' ')[1]
         graphic = "📈  🛫\n     🛫\n          🛫"
     elif risk_level == "High":
         target = round(random.uniform(2.80, 7.50), 2)
-        risk_name = LANG[lang]['btn_risk_3'].split(' ')[1] # Высокий
+        risk_name = LANG[lang]['btn_risk_3'].split(' ')[1]
         graphic = "📈  🛫\n          🛫\n               🛫\n                    🛫"
     else:
         target = round(random.uniform(1.80, 2.50), 2)
-        risk_name = LANG[lang]['btn_risk_2'].split(' ')[1] # Средний
+        risk_name = LANG[lang]['btn_risk_2'].split(' ')[1]
         graphic = "📈  🛫\n     🛫\n          🛫\n               🛫"
         
     title = LANG[lang]['signal_title'].format(risk_name=risk_name)
@@ -287,11 +281,11 @@ def generate_aviator_signal(lang, risk_level="Medium", signals_left=0):
     return f"{title}<code>{graphic}</code>\n{hint}"
 
 # ---------- Handlers ----------
-@dp.message_handler(commands=["start"])
-async def cmd_start(message: types.Message):
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message, command: CommandObject):
     uid = message.from_user.id
+    args = command.args
     
-    args = message.get_args()
     referrer_id = None
     if args and args.isdigit():
         referrer_id = int(args)
@@ -304,50 +298,45 @@ async def cmd_start(message: types.Message):
             conn.execute("UPDATE user SET referrer_id = ? WHERE user_id = ? AND referrer_id IS NULL", (referrer_id, uid))
         conn.commit()
     
-    await bot.send_message(uid, LANG['ru']['choose_lang'], reply_markup=get_lang_kb())
+    await message.answer(LANG['ru']['choose_lang'], reply_markup=get_lang_kb())
 
-@dp.callback_query_handler(text="lang_menu")
+@dp.callback_query(F.data == "lang_menu")
 async def cb_lang_menu(call: types.CallbackQuery):
-    await bot.edit_message_text(LANG['ru']['choose_lang'], call.from_user.id, call.message.message_id, reply_markup=get_lang_kb())
+    await call.message.edit_text(LANG['ru']['choose_lang'], reply_markup=get_lang_kb())
 
-@dp.callback_query_handler(text_startswith="set_lang_")
+@dp.callback_query(F.data.startswith("set_lang_"))
 async def cb_set_lang(call: types.CallbackQuery):
     new_lang = call.data.split("_")[-1]
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("UPDATE user SET language = ? WHERE user_id = ?", (new_lang, call.from_user.id))
         conn.commit()
         
-    await bot.answer_callback_query(call.id, LANG[new_lang]['lang_set'])
-    await bot.edit_message_text(
+    await call.answer(LANG[new_lang]['lang_set'])
+    await call.message.edit_text(
         text=LANG[new_lang]['welcome'],
-        chat_id=call.from_user.id,
-        message_id=call.message.message_id,
         reply_markup=main_menu(new_lang)
     )
 
-@dp.callback_query_handler(text="main_menu")
+@dp.callback_query(F.data == "main_menu")
 async def cb_main_menu(call: types.CallbackQuery):
     user = get_user(call.from_user.id)
     lang = user['lang'] if user else 'ru'
-    await bot.edit_message_text(
+    await call.message.edit_text(
         text=LANG[lang]['welcome'],
-        chat_id=call.from_user.id,
-        message_id=call.message.message_id,
         reply_markup=main_menu(lang)
     )
-    await bot.answer_callback_query(call.id)
+    await call.answer()
 
-@dp.callback_query_handler(text="support")
+@dp.callback_query(F.data == "support")
 async def cb_support(call: types.CallbackQuery):
     user = get_user(call.from_user.id)
     lang = user['lang'] if user else 'ru'
     text = LANG[lang]['support_text'].format(admin_id=ADMIN_ID)
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton(LANG[lang]['btn_main'], callback_data="main_menu"))
-    await bot.edit_message_text(text=text, chat_id=call.from_user.id, message_id=call.message.message_id, reply_markup=kb, disable_web_page_preview=True)
-    await bot.answer_callback_query(call.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=LANG[lang]['btn_main'], callback_data="main_menu")]])
+    await call.message.edit_text(text=text, reply_markup=kb, disable_web_page_preview=True)
+    await call.answer()
 
-@dp.callback_query_handler(text="ref_menu")
+@dp.callback_query(F.data == "ref_menu")
 async def cb_ref_menu(call: types.CallbackQuery):
     uid = call.from_user.id
     user = get_user(uid)
@@ -355,27 +344,26 @@ async def cb_ref_menu(call: types.CallbackQuery):
     bot_info = await bot.get_me()
     ref_link = f"https://t.me/{bot_info.username}?start={uid}"
     text = LANG[lang]['ref_title'].format(link=ref_link, count=user['ref_count'])
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton(LANG[lang]['btn_main'], callback_data="main_menu"))
-    await bot.edit_message_text(text=text, chat_id=uid, message_id=call.message.message_id, reply_markup=kb, disable_web_page_preview=True)
-    await bot.answer_callback_query(call.id)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=LANG[lang]['btn_main'], callback_data="main_menu")]])
+    await call.message.edit_text(text=text, reply_markup=kb, disable_web_page_preview=True)
+    await call.answer()
 
-@dp.callback_query_handler(text="instr")
+@dp.callback_query(F.data == "instr")
 async def cb_instr(call: types.CallbackQuery):
     user = get_user(call.from_user.id)
     lang = user['lang'] if user else 'ru'
     text = LANG[lang]['instr_text'].format(url=PARTNER_URL.format(uid=call.from_user.id))
-    await bot.send_message(call.from_user.id, text)
-    await bot.answer_callback_query(call.id)
+    await call.message.answer(text)
+    await call.answer()
 
-@dp.callback_query_handler(text="reg")
+@dp.callback_query(F.data == "reg")
 async def cb_reg(call: types.CallbackQuery):
     user = get_user(call.from_user.id)
     lang = user['lang'] if user else 'ru'
-    await bot.send_message(call.from_user.id, LANG[lang]['need_reg'], reply_markup=reg_kb(call.from_user.id, lang))
-    await bot.answer_callback_query(call.id)
+    await call.message.answer(LANG[lang]['need_reg'], reply_markup=reg_kb(call.from_user.id, lang))
+    await call.answer()
 
-@dp.callback_query_handler(text="sign")
+@dp.callback_query(F.data == "sign")
 async def cb_sign(call: types.CallbackQuery):
     uid = call.from_user.id
     user = get_user(uid)
@@ -383,20 +371,18 @@ async def cb_sign(call: types.CallbackQuery):
     has_access = user and (user['postback_id'] or user['ref_count'] >= 3)
     if not has_access:
         lang = user['lang'] if user else 'ru'
-        await bot.send_message(uid, LANG[lang]['need_reg'], reply_markup=reg_kb(uid, lang))
-        await bot.answer_callback_query(call.id)
+        await call.message.answer(LANG[lang]['need_reg'], reply_markup=reg_kb(uid, lang))
+        await call.answer()
         return
     
     lang = user['lang']
-    await bot.edit_message_text(
+    await call.message.edit_text(
         text=LANG[lang]['choose_risk'],
-        chat_id=uid,
-        message_id=call.message.message_id,
         reply_markup=risk_menu(lang)
     )
-    await bot.answer_callback_query(call.id)
+    await call.answer()
 
-@dp.callback_query_handler(text_startswith="gen_risk_")
+@dp.callback_query(F.data.startswith("gen_risk_"))
 async def cb_gen_risk(call: types.CallbackQuery):
     uid = call.from_user.id
     user = get_user(uid)
@@ -409,8 +395,8 @@ async def cb_gen_risk(call: types.CallbackQuery):
         daily_signals = 0
         
     if daily_signals >= DAILY_LIMIT:
-        await bot.answer_callback_query(call.id, "⚠️ Лимит на сегодня исчерпан!", show_alert=True)
-        await bot.send_message(uid, LANG[lang]['limit_msg'].format(limit=DAILY_LIMIT))
+        await call.answer("⚠️ Лимит на сегодня исчерпан!", show_alert=True)
+        await call.message.answer(LANG[lang]['limit_msg'].format(limit=DAILY_LIMIT))
         return
         
     daily_signals += 1
@@ -426,24 +412,22 @@ async def cb_gen_risk(call: types.CallbackQuery):
     
     signal_text = generate_aviator_signal(lang, risk_level, signals_left)
     
-    await bot.edit_message_text(
+    await call.message.edit_text(
         text=signal_text,
-        chat_id=uid,
-        message_id=call.message.message_id,
         reply_markup=sign_kb(lang)
     )
-    await bot.answer_callback_query(call.id)
+    await call.answer()
 
-@dp.message_handler(commands=["admin"])
+@dp.message(Command("admin"))
 async def cmd_admin(message: types.Message):
     user = get_user(message.from_user.id)
     lang = user['lang'] if user else 'ru'
     if str(message.from_user.id) != str(ADMIN_ID):
-        await bot.send_message(message.from_user.id, LANG[lang]['not_admin'])
+        await message.answer(LANG[lang]['not_admin'])
         return
-    await bot.send_message(message.from_user.id, LANG[lang]['admin_panel'])
+    await message.answer(LANG[lang]['admin_panel'])
 
-@dp.message_handler(commands=["top"])
+@dp.message(Command("top"))
 async def cmd_top(message: types.Message):
     if str(message.from_user.id) != str(ADMIN_ID):
         return
@@ -560,11 +544,15 @@ def run_web():
     server.serve_forever()
 
 # ---------- Entry ----------
-async def on_startup(dp):
+async def main():
+    # Устанавливаем кнопку меню (Start)
     await bot.set_chat_menu_button(menu_button=MenuButtonCommands(text="Start"))
+    
+    # Запуск бота (aiogram 3.x)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     init_db()
     threading.Thread(target=run_web, daemon=True).start()
-    log.info("Bot starting...")
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    log.info("Bot starting (aiogram 3.x)...")
+    asyncio.run(main())
