@@ -15,6 +15,8 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonCommands
 from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ============================================================
@@ -23,7 +25,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 BOT_TOKEN = "9033220269:AAEL5MCxUjxJOIcMUNxjW0kK-kev6hgXeeQ"
 ADMIN_ID  = "6109042131"
 WEB_PORT  = int(os.getenv("PORT", "5000"))
-
 PARTNER_URL = "https://r1wagwk.com/v3/aviator-fire?p=a0d1&sub1={uid}"
 
 # ============================================================
@@ -46,7 +47,7 @@ LANG = {
         'left_signals': "💡 <i>Осталось сигналов: {left}</i>\n\n",
         'limit_msg': "⚠️ <b>ЛИМИТ ИСЧЕРПАН!</b>\n\n👇 Пригласите друга по кнопке «👥 Конкурс и Рефералы»!",
         'instr_text': "📖 <b>КАК ИГРАТЬ:</b>\n\n1️⃣ <b>Регистрация:</b> <a href='{url}'>КЛИКНИ СЮДА</a>\n2️⃣ <b>Депозит.</b>\n3️⃣ <b>Игра:</b> Раздел <b>Aviator</b>.\n4️⃣ <b>Настройка:</b> Авто-кэшаут по сигналу.",
-        'admin_panel': "⚙️ <b>АДМИН ПАНЕЛЬ</b>\n\n👑 Статус: <b>GOD MODE (Безлимит)</b>\n📊 Управление: /top - таблица лидеров",
+        'admin_panel': "⚙️ <b>АДМИН ПАНЕЛЬ</b>\n\n👑 Статус: <b>GOD MODE</b>\nВыберите действие:",
         'not_admin': "❌ Вы не админ.",
         'support_text': "🆘 <b>Поддержка</b>\n\n👉 <a href='tg://user?id={admin_id}'>Написать админу</a>",
         'ref_title': "🏆 <b>КОНКУРС</b> 🏆\n\n1 друг = 1 билет.\n🥇 $100\n🥈 $50\n🥉 $20\n\n📊 Твои билеты: <b>{count}</b>\n\n🔗 Ссылка:\n<code>{link}</code>",
@@ -68,7 +69,7 @@ LANG = {
         'left_signals': "💡 <i>Signals left: {left}</i>\n\n",
         'limit_msg': "⚠️ <b>LIMIT REACHED!</b>\n\nInvite a friend via '👥 Contest & Refs'!",
         'instr_text': "📖 <b>HOW TO START:</b>\n\n1️⃣ <b>Register:</b> <a href='{url}'>CLICK HERE</a>\n2️⃣ <b>Deposit.</b>\n3️⃣ <b>Game:</b> <b>Aviator</b>.",
-        'admin_panel': "⚙️ <b>ADMIN PANEL</b>\n\n👑 Status: <b>GOD MODE (Unlimited)</b>\n📊 Commands: /top",
+        'admin_panel': "⚙️ <b>ADMIN PANEL</b>\n\n👑 Status: <b>GOD MODE</b>\nChoose action:",
         'not_admin': "❌ No rights.",
         'support_text': "🆘 <b>Support</b>\n\n👉 <a href='tg://user?id={admin_id}'>Message Admin</a>",
         'ref_title': "🏆 <b>CONTEST</b> 🏆\n\n1 friend = 1 ticket.\n🥇 $100\n🥈 $50\n🥉 $20\n\n📊 Tickets: <b>{count}</b>\n\n🔗 Link:\n<code>{link}</code>",
@@ -79,6 +80,9 @@ LANG = {
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("aviator")
+
+class AdminState(StatesGroup):
+    waiting_for_broadcast = State()
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -207,7 +211,6 @@ async def cb_gen(call: types.CallbackQuery):
     uid = call.from_user.id
     u = get_user(uid); lang = u['lang'] if u else 'ru'
     is_admin = (str(uid) == str(ADMIN_ID))
-    
     today = datetime.date.today().isoformat()
     daily = 0 if u['last_signal_date'] != today else u['daily_signals']
     
@@ -227,20 +230,63 @@ async def cb_gen(call: types.CallbackQuery):
     signal_text = generate_aviator_signal(lang, call.data.split("_")[-1], signals_left_str)
     await call.message.edit_text(text=signal_text, reply_markup=sign_kb(lang)); await call.answer()
 
+# ============================================================
+# АДМИН ПАНЕЛЬ
+# ============================================================
 @dp.message(Command("admin"))
 async def cmd_adm(msg: types.Message):
-    u = get_user(msg.from_user.id); lang = u['lang'] if u else 'ru'
-    if str(msg.from_user.id) == str(ADMIN_ID): await msg.answer(LANG[lang]['admin_panel'])
-    else: await msg.answer(LANG[lang]['not_admin'])
+    if str(msg.from_user.id) != str(ADMIN_ID): return
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="main_menu")]
+    ])
+    await msg.answer("⚙️ <b>АДМИН ПАНЕЛЬ AVIATOR</b>\n\nВыберите действие:", reply_markup=kb)
 
-@dp.message(Command("top"))
-async def cmd_top(msg: types.Message):
-    if str(msg.from_user.id) != ADMIN_ID: return
+@dp.callback_query(F.data == "admin_stats")
+async def cb_admin_stats(call: types.CallbackQuery):
+    if str(call.from_user.id) != str(ADMIN_ID): return
     with sqlite3.connect(DB_PATH) as conn:
-        rows = conn.execute("SELECT u1.user_id, COUNT(u2.user_id) FROM user u1 JOIN user u2 ON u1.user_id = u2.referrer_id WHERE u2.postback_id IS NOT NULL GROUP BY u1.user_id ORDER BY 2 DESC LIMIT 10").fetchall()
-    text = "🏆 <b>ТОП-10</b>\n\n" + "".join([f"{i}. ID: <code>{r[0]}</code> — <b>{r[1]} билетов</b>\n" for i, r in enumerate(rows, 1)]) if rows else "Нет рефералов."
-    await msg.answer(text)
+        total = conn.execute("SELECT COUNT(*) FROM user").fetchone()[0]
+        regs = conn.execute("SELECT COUNT(*) FROM user WHERE postback_id IS NOT NULL").fetchone()[0]
+    
+    text = f"📊 <b>Статистика бота:</b>\n\n👥 Всего юзеров: <b>{total}</b>\n✅ Регистраций (1win): <b>{regs}</b>"
+    await call.message.edit_text(text, reply_markup=call.message.reply_markup)
+    await call.answer()
 
+@dp.callback_query(F.data == "admin_broadcast")
+async def cb_admin_broadcast(call: types.CallbackQuery, state: FSMContext):
+    if str(call.from_user.id) != str(ADMIN_ID): return
+    await call.message.edit_text("📢 Отправьте текст для рассылки всем пользователям (можно с HTML-тегами):")
+    await state.set_state(AdminState.waiting_for_broadcast)
+    await call.answer()
+
+@dp.message(AdminState.waiting_for_broadcast)
+async def process_broadcast(message: types.Message, state: FSMContext):
+    if str(message.from_user.id) != str(ADMIN_ID): return
+    await state.clear()
+    
+    text = message.text
+    with sqlite3.connect(DB_PATH) as conn:
+        users = conn.execute("SELECT user_id FROM user").fetchall()
+        
+    await message.answer(f"🚀 Начинаю рассылку для {len(users)} чел...")
+    
+    success = 0
+    for (uid,) in users:
+        try:
+            await bot.send_message(uid, text, parse_mode="HTML")
+            success += 1
+            await asyncio.sleep(0.05) # Защита от бана Telegram
+        except:
+            pass
+            
+    await message.answer(f"✅ Рассылка завершена!\nУспешно доставлено: {success}")
+
+# ============================================================
+# ВСТРОЕННЫЙ ВЕБ-СЕРВЕР ДЛЯ ПОСТБЕКОВ И API
+# ============================================================
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         p = urllib.parse.urlparse(self.path)
