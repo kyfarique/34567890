@@ -21,11 +21,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # ============================================================
 #  НАСТРОЙКИ AVIATOR BOT
 # ============================================================
-BOT_TOKEN = "9033220269:AAEL5MCxUjxJOIcMUNxjW0kK-kev6hgXeeQ" # Токен Aviator-бота
+BOT_TOKEN = "9033220269:AAEL5MCxUjxJOIcMUNxjW0kK-kev6hgXeeQ" # Токен Aviator
 ADMIN_ID  = "6109042131"
 WEB_PORT  = int(os.getenv("PORT", "5000"))
 
-# Твоя партнерская ссылка для Aviator
+# Ссылка для Aviator
 PARTNER_URL = "https://r1wagwk.com/v3/aviator-fire?p=a0d1&sub1={uid}"
 
 # ============================================================
@@ -84,19 +84,20 @@ log = logging.getLogger("aviator")
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS user (user_id INTEGER PRIMARY KEY, postback_id TEXT, language TEXT DEFAULT 'ru', referrer_id INTEGER, daily_signals INTEGER DEFAULT 0, last_signal_date TEXT)")
+        # Добавлена колонка total_deposit
+        conn.execute("CREATE TABLE IF NOT EXISTS user (user_id INTEGER PRIMARY KEY, postback_id TEXT, language TEXT DEFAULT 'ru', referrer_id INTEGER, daily_signals INTEGER DEFAULT 0, last_signal_date TEXT, total_deposit REAL DEFAULT 0)")
         conn.commit()
-        for col, typ in [("language", "TEXT DEFAULT 'ru'"), ("referrer_id", "INTEGER"), ("daily_signals", "INTEGER DEFAULT 0"), ("last_signal_date", "TEXT")]:
+        for col, typ in [("language", "TEXT DEFAULT 'ru'"), ("referrer_id", "INTEGER"), ("daily_signals", "INTEGER DEFAULT 0"), ("last_signal_date", "TEXT"), ("total_deposit", "REAL DEFAULT 0")]:
             try: conn.execute(f"ALTER TABLE user ADD COLUMN {col} {typ}")
             except sqlite3.OperationalError: pass
 
 def get_user(uid: int):
     with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute("SELECT postback_id, language, referrer_id, daily_signals, last_signal_date FROM user WHERE user_id = ?", (uid,)).fetchone()
+        row = conn.execute("SELECT postback_id, language, referrer_id, daily_signals, last_signal_date, total_deposit FROM user WHERE user_id = ?", (uid,)).fetchone()
         if row:
             lang = row[1] if row[1] in LANG else 'ru'
             ref_count = conn.execute("SELECT COUNT(*) FROM user WHERE referrer_id = ? AND postback_id IS NOT NULL AND postback_id != 'null'", (uid,)).fetchone()[0]
-            return {"user_id": uid, "postback_id": row[0], "lang": lang, "referrer_id": row[2], "ref_count": ref_count, "daily_signals": row[3] or 0, "last_signal_date": row[4]}
+            return {"user_id": uid, "postback_id": row[0], "lang": lang, "referrer_id": row[2], "ref_count": ref_count, "daily_signals": row[3] or 0, "last_signal_date": row[4], "total_deposit": row[5] or 0}
     return None
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML", link_preview_is_disabled=True))
@@ -203,8 +204,6 @@ async def cb_reg(call: types.CallbackQuery):
 @dp.callback_query(F.data == "sign")
 async def cb_sign(call: types.CallbackQuery):
     u = get_user(call.from_user.id)
-    
-    # Умная проверка на "null"
     is_registered = u and u['postback_id'] and u['postback_id'].lower() != "null"
     
     if not u or (not is_registered and u['ref_count'] < 3):
@@ -267,22 +266,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with sqlite3.connect(DB_PATH) as conn:
                 total = conn.execute("SELECT COUNT(*) FROM user").fetchone()[0]
                 regs = conn.execute("SELECT COUNT(*) FROM user WHERE postback_id IS NOT NULL AND postback_id != 'null'").fetchone()[0]
+                total_deposit = conn.execute("SELECT SUM(total_deposit) FROM user").fetchone()[0] or 0
                 recent = conn.execute("SELECT user_id, postback_id FROM user WHERE postback_id IS NOT NULL ORDER BY rowid DESC LIMIT 10").fetchall()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            self.wfile.write(json.dumps({"total": total, "regs": regs, "recent": recent}).encode())
+            self.wfile.write(json.dumps({"total": total, "regs": regs, "deposit": total_deposit, "recent": recent}).encode())
             return
 
         if p.path == '/postback':
-            q = urllib.parse.parse_qs(p.query); s1, s2 = q.get('sub1',[''])[0], q.get('subid',[''])[0]
+            q = urllib.parse.parse_qs(p.query)
+            s1 = q.get('sub1',[''])[0]
+            s2 = q.get('subid',[''])[0]
+            amount_str = q.get('amount',['0'])[0]
+            
             if not s1 or not s2: self.send_response(400); self.end_headers(); return
-            try: uid = int(s1)
+            try: 
+                uid = int(s1)
+                amount = float(amount_str) if amount_str else 0.0
             except: self.send_response(400); self.end_headers(); return
             
             with sqlite3.connect(DB_PATH) as conn: 
-                conn.execute("INSERT INTO user (user_id, postback_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET postback_id = excluded.postback_id", (uid, s2))
+                # Обновляем postback_id и прибавляем сумму депозита
+                conn.execute("INSERT INTO user (user_id, postback_id, total_deposit) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET postback_id = excluded.postback_id, total_deposit = user.total_deposit + excluded.total_deposit", (uid, s2, amount))
                 conn.commit()
             
             u = get_user(uid); lang = u['lang'] if u else 'ru'
@@ -293,12 +300,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 req = urllib.request.urlopen(url, timeout=10)
                 log.info(f"Telegram API response for {uid}: {req.read().decode()}")
             except urllib.error.HTTPError as e:
-                if e.code == 400:
-                    log.warning(f"Пользователь {uid} не нажал /start в боте. Сообщение не отправлено.")
-                else:
-                    log.error(f"ОШИБКА ОТПРАВКИ СООБЩЕНИЯ ДЛЯ {uid}: {e}")
+                if e.code == 400: log.warning(f"Пользователь {uid} не нажал /start.")
+                else: log.error(f"ОШИБКА ОТПРАВКИ ДЛЯ {uid}: {e}")
             except Exception as e:
-                log.error(f"ОШИБКА ОТПРАВКИ СООБЩЕНИЯ ДЛЯ {uid}: {e}")
+                log.error(f"ОШИБКА ОТПРАВКИ ДЛЯ {uid}: {e}")
             
             if u and u.get('referrer_id'):
                 r_u = get_user(u['referrer_id'])
@@ -309,7 +314,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         urllib.request.urlopen(ref_url, timeout=5)
                     except: pass
                     
-            self.send_response(200); self.end_headers(); self.wfile.write(f"sub1={s1}; subid={s2}; OK".encode('utf-8')); return
+            self.send_response(200); self.end_headers(); self.wfile.write(f"sub1={s1}; subid={s2}; amount={amount}; OK".encode('utf-8')); return
         self.send_response(404); self.end_headers()
 
 async def main():
