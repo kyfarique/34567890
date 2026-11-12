@@ -7,6 +7,7 @@ import threading
 import http.server
 import urllib.parse
 import urllib.request
+import urllib.error
 import datetime
 import asyncio
 import json
@@ -15,16 +16,16 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MenuButtonCommands
 from aiogram.client.default import DefaultBotProperties
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ============================================================
-#  НАСТРОЙКИ AVIATOR
+#  НАСТРОЙКИ AVIATOR BOT
 # ============================================================
-BOT_TOKEN = "9033220269:AAEL5MCxUjxJOIcMUNxjW0kK-kev6hgXeeQ"
+BOT_TOKEN = "9033220269:AAEL5MCxUjxJOIcMUNxjW0kK-kev6hgXeeQ" # Токен Aviator-бота
 ADMIN_ID  = "6109042131"
 WEB_PORT  = int(os.getenv("PORT", "5000"))
+
+# Твоя партнерская ссылка для Aviator
 PARTNER_URL = "https://r1wagwk.com/v3/aviator-fire?p=a0d1&sub1={uid}"
 
 # ============================================================
@@ -43,11 +44,11 @@ LANG = {
         'btn_risk_1': "🟢 Низкий (до x1.5)", 'btn_risk_2': "🟡 Средний (до x2.5)", 'btn_risk_3': "🔴 Высокий (x3.0+)",
         'btn_main': "⬅️ Главное меню",
         'signal_title': "✈️ <b>Анализ завершен!</b>\nУровень риска: <b>{risk_name}</b>\n\n",
-        'signal_hint': "\n🎯 <b>Целевой коэффициент:</b> <code>x{target}</code>\n\n{left}🔥 <i>Удачи! Не жадничай.</i>",
+        'signal_hint': "\n🎯 <b>Целевой коэффициент:</b> <code>x{target}</code>\n\n{left}🔥 <i>Удачи! Не жадничай, забирай вовремя.</i>",
         'left_signals': "💡 <i>Осталось сигналов: {left}</i>\n\n",
         'limit_msg': "⚠️ <b>ЛИМИТ ИСЧЕРПАН!</b>\n\n👇 Пригласите друга по кнопке «👥 Конкурс и Рефералы»!",
-        'instr_text': "📖 <b>КАК ИГРАТЬ:</b>\n\n1️⃣ <b>Регистрация:</b> <a href='{url}'>КЛИКНИ СЮДА</a>\n2️⃣ <b>Депозит.</b>\n3️⃣ <b>Игра:</b> Раздел <b>Aviator</b>.\n4️⃣ <b>Настройка:</b> Авто-кэшаут по сигналу.",
-        'admin_panel': "⚙️ <b>АДМИН ПАНЕЛЬ</b>\n\n👑 Статус: <b>GOD MODE</b>\nВыберите действие:",
+        'instr_text': "📖 <b>КАК ИГРАТЬ:</b>\n\n1️⃣ <b>Регистрация:</b> <a href='{url}'>КЛИКНИ СЮДА</a>\n2️⃣ <b>Депозит.</b>\n3️⃣ <b>Игра:</b> Раздел <b>Aviator</b>.\n4️⃣ <b>Настройка:</b> Выстави авто-кэшаут по сигналу.",
+        'admin_panel': "⚙️ <b>АДМИН ПАНЕЛЬ</b>\n\n👑 Статус: <b>GOD MODE (Безлимит)</b>\n📊 Управление: /top - таблица лидеров",
         'not_admin': "❌ Вы не админ.",
         'support_text': "🆘 <b>Поддержка</b>\n\n👉 <a href='tg://user?id={admin_id}'>Написать админу</a>",
         'ref_title': "🏆 <b>КОНКУРС</b> 🏆\n\n1 друг = 1 билет.\n🥇 $100\n🥈 $50\n🥉 $20\n\n📊 Твои билеты: <b>{count}</b>\n\n🔗 Ссылка:\n<code>{link}</code>",
@@ -69,7 +70,7 @@ LANG = {
         'left_signals': "💡 <i>Signals left: {left}</i>\n\n",
         'limit_msg': "⚠️ <b>LIMIT REACHED!</b>\n\nInvite a friend via '👥 Contest & Refs'!",
         'instr_text': "📖 <b>HOW TO START:</b>\n\n1️⃣ <b>Register:</b> <a href='{url}'>CLICK HERE</a>\n2️⃣ <b>Deposit.</b>\n3️⃣ <b>Game:</b> <b>Aviator</b>.",
-        'admin_panel': "⚙️ <b>ADMIN PANEL</b>\n\n👑 Status: <b>GOD MODE</b>\nChoose action:",
+        'admin_panel': "⚙️ <b>ADMIN PANEL</b>\n\n👑 Status: <b>GOD MODE (Unlimited)</b>\n📊 Commands: /top - leaderboard",
         'not_admin': "❌ No rights.",
         'support_text': "🆘 <b>Support</b>\n\n👉 <a href='tg://user?id={admin_id}'>Message Admin</a>",
         'ref_title': "🏆 <b>CONTEST</b> 🏆\n\n1 friend = 1 ticket.\n🥇 $100\n🥈 $50\n🥉 $20\n\n📊 Tickets: <b>{count}</b>\n\n🔗 Link:\n<code>{link}</code>",
@@ -80,9 +81,6 @@ LANG = {
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("aviator")
-
-class AdminState(StatesGroup):
-    waiting_for_broadcast = State()
 
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -97,7 +95,7 @@ def get_user(uid: int):
         row = conn.execute("SELECT postback_id, language, referrer_id, daily_signals, last_signal_date FROM user WHERE user_id = ?", (uid,)).fetchone()
         if row:
             lang = row[1] if row[1] in LANG else 'ru'
-            ref_count = conn.execute("SELECT COUNT(*) FROM user WHERE referrer_id = ? AND postback_id IS NOT NULL", (uid,)).fetchone()[0]
+            ref_count = conn.execute("SELECT COUNT(*) FROM user WHERE referrer_id = ? AND postback_id IS NOT NULL AND postback_id != 'null'", (uid,)).fetchone()[0]
             return {"user_id": uid, "postback_id": row[0], "lang": lang, "referrer_id": row[2], "ref_count": ref_count, "daily_signals": row[3] or 0, "last_signal_date": row[4]}
     return None
 
@@ -132,17 +130,21 @@ def sign_kb(lang):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=LANG[lang]['btn_sign'], callback_data="sign")], [InlineKeyboardButton(text=LANG[lang]['btn_main'], callback_data="main_menu")]])
 
 def generate_aviator_signal(lang, risk_level, signals_left_str):
-    if risk_level == "low": target, r_name, g = round(random.uniform(1.2, 1.6), 2), "Low", "📈  🛫\n     🛫"
-    elif risk_level == "high": target, r_name, g = round(random.uniform(2.8, 7.5), 2), "High", "📈  🛫\n          🛫\n               🛫"
-    else: target, r_name, g = round(random.uniform(1.8, 2.5), 2), "Medium", "📈  🛫\n     🛫\n          🛫"
+    if risk_level == "low": 
+        target, r_name, g = round(random.uniform(1.2, 1.6), 2), "Low", "📈  🛫\n     🛫"
+    elif risk_level == "high": 
+        target, r_name, g = round(random.uniform(2.8, 7.5), 2), "High", "📈  🛫\n          🛫\n               🛫"
+    else: 
+        target, r_name, g = round(random.uniform(1.8, 2.5), 2), "Medium", "📈  🛫\n     🛫\n          🛫"
+    
     title = LANG[lang]['signal_title'].format(risk_name=r_name)
     hint = LANG[lang]['signal_hint'].format(target=target, left=signals_left_str)
     return f"{title}<code>{g}</code>\n{hint}"
 
 def get_fake_win(lang='ru'):
-    names = ["Alex", "Max", "Ivan", "Denis", "Artem", "Vlad", "Favour", "Joyce Appiah"]
+    names = ["Alex", "Max", "Ivan", "Denis", "Artem", "Vlad", "Favour", "Joyce Appiah", "Murilo Hodas"]
     name = random.choice(names)
-    win = random.randint(500, 65000)
+    win = random.randint(500, 85000)
     mult = round(random.uniform(1.2, 9.5), 2)
     if lang == 'ru': return f"🔥 <i>{name} только что забрал {win:,} ₽ в Aviator (x{mult})!</i>"
     else: return f"🔥 <i>{name} just cashed out ${win:,} in Aviator (x{mult})!</i>"
@@ -201,15 +203,24 @@ async def cb_reg(call: types.CallbackQuery):
 @dp.callback_query(F.data == "sign")
 async def cb_sign(call: types.CallbackQuery):
     u = get_user(call.from_user.id)
-    if not u or not (u['postback_id'] or u['ref_count'] >= 3):
+    
+    # Умная проверка на "null"
+    is_registered = u and u['postback_id'] and u['postback_id'].lower() != "null"
+    
+    if not u or (not is_registered and u['ref_count'] < 3):
         lang = u['lang'] if u else 'ru'
-        await call.message.answer(LANG[lang]['need_reg'], reply_markup=reg_kb(call.from_user.id, lang)); await call.answer(); return
-    await call.message.edit_text(LANG[u['lang']]['choose_risk'], reply_markup=risk_menu(u['lang'])); await call.answer()
+        await call.message.answer(LANG[lang]['need_reg'], reply_markup=reg_kb(call.from_user.id, lang))
+        await call.answer()
+        return
+        
+    await call.message.edit_text(LANG[u['lang']]['choose_risk'], reply_markup=risk_menu(u['lang']))
+    await call.answer()
 
 @dp.callback_query(F.data.startswith("gen_risk_"))
 async def cb_gen(call: types.CallbackQuery):
     uid = call.from_user.id
     u = get_user(uid); lang = u['lang'] if u else 'ru'
+    
     is_admin = (str(uid) == str(ADMIN_ID))
     today = datetime.date.today().isoformat()
     daily = 0 if u['last_signal_date'] != today else u['daily_signals']
@@ -226,63 +237,23 @@ async def cb_gen(call: types.CallbackQuery):
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute("UPDATE user SET last_signal_date = ? WHERE user_id = ?", (today, uid)); conn.commit()
         signals_left_str = "💡 <i>Осталось сигналов: ∞ (God Mode)</i>\n\n"
-    
+
     signal_text = generate_aviator_signal(lang, call.data.split("_")[-1], signals_left_str)
     await call.message.edit_text(text=signal_text, reply_markup=sign_kb(lang)); await call.answer()
 
-# ============================================================
-# АДМИН ПАНЕЛЬ
-# ============================================================
 @dp.message(Command("admin"))
 async def cmd_adm(msg: types.Message):
-    if str(msg.from_user.id) != str(ADMIN_ID): return
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="main_menu")]
-    ])
-    await msg.answer("⚙️ <b>АДМИН ПАНЕЛЬ AVIATOR</b>\n\nВыберите действие:", reply_markup=kb)
+    u = get_user(msg.from_user.id); lang = u['lang'] if u else 'ru'
+    if str(msg.from_user.id) == str(ADMIN_ID): await msg.answer(LANG[lang]['admin_panel'])
+    else: await msg.answer(LANG[lang]['not_admin'])
 
-@dp.callback_query(F.data == "admin_stats")
-async def cb_admin_stats(call: types.CallbackQuery):
-    if str(call.from_user.id) != str(ADMIN_ID): return
+@dp.message(Command("top"))
+async def cmd_top(msg: types.Message):
+    if str(msg.from_user.id) != ADMIN_ID: return
     with sqlite3.connect(DB_PATH) as conn:
-        total = conn.execute("SELECT COUNT(*) FROM user").fetchone()[0]
-        regs = conn.execute("SELECT COUNT(*) FROM user WHERE postback_id IS NOT NULL").fetchone()[0]
-    
-    text = f"📊 <b>Статистика бота:</b>\n\n👥 Всего юзеров: <b>{total}</b>\n✅ Регистраций (1win): <b>{regs}</b>"
-    await call.message.edit_text(text, reply_markup=call.message.reply_markup)
-    await call.answer()
-
-@dp.callback_query(F.data == "admin_broadcast")
-async def cb_admin_broadcast(call: types.CallbackQuery, state: FSMContext):
-    if str(call.from_user.id) != str(ADMIN_ID): return
-    await call.message.edit_text("📢 Отправьте текст для рассылки всем пользователям (можно с HTML-тегами):")
-    await state.set_state(AdminState.waiting_for_broadcast)
-    await call.answer()
-
-@dp.message(AdminState.waiting_for_broadcast)
-async def process_broadcast(message: types.Message, state: FSMContext):
-    if str(message.from_user.id) != str(ADMIN_ID): return
-    await state.clear()
-    
-    text = message.text
-    with sqlite3.connect(DB_PATH) as conn:
-        users = conn.execute("SELECT user_id FROM user").fetchall()
-        
-    await message.answer(f"🚀 Начинаю рассылку для {len(users)} чел...")
-    
-    success = 0
-    for (uid,) in users:
-        try:
-            await bot.send_message(uid, text, parse_mode="HTML")
-            success += 1
-            await asyncio.sleep(0.05) # Защита от бана Telegram
-        except:
-            pass
-            
-    await message.answer(f"✅ Рассылка завершена!\nУспешно доставлено: {success}")
+        rows = conn.execute("SELECT u1.user_id, COUNT(u2.user_id) FROM user u1 JOIN user u2 ON u1.user_id = u2.referrer_id WHERE u2.postback_id IS NOT NULL GROUP BY u1.user_id ORDER BY 2 DESC LIMIT 10").fetchall()
+    text = "🏆 <b>ТОП-10</b>\n\n" + "".join([f"{i}. ID: <code>{r[0]}</code> — <b>{r[1]} билетов</b>\n" for i, r in enumerate(rows, 1)]) if rows else "Нет рефералов."
+    await msg.answer(text)
 
 # ============================================================
 # ВСТРОЕННЫЙ ВЕБ-СЕРВЕР ДЛЯ ПОСТБЕКОВ И API
@@ -295,7 +266,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if p.path == '/api/stats':
             with sqlite3.connect(DB_PATH) as conn:
                 total = conn.execute("SELECT COUNT(*) FROM user").fetchone()[0]
-                regs = conn.execute("SELECT COUNT(*) FROM user WHERE postback_id IS NOT NULL").fetchone()[0]
+                regs = conn.execute("SELECT COUNT(*) FROM user WHERE postback_id IS NOT NULL AND postback_id != 'null'").fetchone()[0]
                 recent = conn.execute("SELECT user_id, postback_id FROM user WHERE postback_id IS NOT NULL ORDER BY rowid DESC LIMIT 10").fetchall()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -309,16 +280,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not s1 or not s2: self.send_response(400); self.end_headers(); return
             try: uid = int(s1)
             except: self.send_response(400); self.end_headers(); return
-            with sqlite3.connect(DB_PATH) as conn: conn.execute("INSERT INTO user (user_id, postback_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET postback_id = excluded.postback_id", (uid, s2)); conn.commit()
+            
+            with sqlite3.connect(DB_PATH) as conn: 
+                conn.execute("INSERT INTO user (user_id, postback_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET postback_id = excluded.postback_id", (uid, s2))
+                conn.commit()
+            
             u = get_user(uid); lang = u['lang'] if u else 'ru'
-            try: urllib.request.urlopen(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage?chat_id={uid}&text={urllib.parse.quote(LANG[lang]['regged'])}&parse_mode=HTML", timeout=5)
-            except: pass
+            
+            try:
+                msg_text = LANG[lang]['regged']
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage?chat_id={uid}&text={urllib.parse.quote(msg_text)}&parse_mode=HTML"
+                req = urllib.request.urlopen(url, timeout=10)
+                log.info(f"Telegram API response for {uid}: {req.read().decode()}")
+            except urllib.error.HTTPError as e:
+                if e.code == 400:
+                    log.warning(f"Пользователь {uid} не нажал /start в боте. Сообщение не отправлено.")
+                else:
+                    log.error(f"ОШИБКА ОТПРАВКИ СООБЩЕНИЯ ДЛЯ {uid}: {e}")
+            except Exception as e:
+                log.error(f"ОШИБКА ОТПРАВКИ СООБЩЕНИЯ ДЛЯ {uid}: {e}")
+            
             if u and u.get('referrer_id'):
                 r_u = get_user(u['referrer_id'])
                 if r_u:
                     t = LANG[r_u['lang']]['ref_success'] if r_u['ref_count'] >= 3 else LANG[r_u['lang']]['ref_notify'].format(count=r_u['ref_count'])
-                    try: urllib.request.urlopen(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage?chat_id={r_u['user_id']}&text={urllib.parse.quote(t)}&parse_mode=HTML", timeout=5)
+                    try: 
+                        ref_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage?chat_id={r_u['user_id']}&text={urllib.parse.quote(t)}&parse_mode=HTML"
+                        urllib.request.urlopen(ref_url, timeout=5)
                     except: pass
+                    
             self.send_response(200); self.end_headers(); self.wfile.write(f"sub1={s1}; subid={s2}; OK".encode('utf-8')); return
         self.send_response(404); self.end_headers()
 
